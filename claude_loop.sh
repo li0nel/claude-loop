@@ -157,7 +157,7 @@ while :; do
     # Interactive mode: standard output, allows human input
     echo "" | tee -a "$log_file"
     echo "Running Claude Code in interactive mode..." | tee -a "$log_file"
-    cat "$prompt_file" | claude --dangerously-skip-permissions
+    claude --dangerously-skip-permissions "$(cat "$prompt_file")"
 
     # No cost tracking or visualization in interactive mode
     echo "" | tee -a "$log_file"
