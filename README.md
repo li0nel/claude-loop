@@ -10,7 +10,7 @@ After that, about a dozen Spec Driven Development workflows were tried. While th
 
 The real game changer became obvious: write specs by day, let the agent rip through implementation at night.
 
-Then I came across Geoffrey Huntley's technique of [running Claude Code in continuous loops](https://lnkd.in/gzd8DH8d), further detailed in [this interview with Dex Horthy](https://github.com/ai-that-works/ai-that-works/tree/main/2025-10-28-ralph-wiggum-coding-agent-power-tools). The promise? A simple prompt asking the model to pick the highest priority item, implement, test, commit, then quit—run in an endless loop with fresh context every time—actually delivers. Similar conclusions were reached by Dex's team at this YC Agents hackathon.
+Then I came across Geoffrey Huntley's technique of [running Claude Code in continuous loops](http://ghuntley.com/ralph), further detailed in [this interview with Dex Horthy](https://github.com/ai-that-works/ai-that-works/tree/main/2025-10-28-ralph-wiggum-coding-agent-power-tools). The promise? A simple prompt asking the model to pick the highest priority item, implement, test, commit, then quit—run in an endless loop with fresh context every time—actually delivers. Similar conclusions were reached by Dex's team at this YC Agents hackathon.
 
 I then applied the same principles to spec writing, but with a human in the loop this time. Starting from a one-line spec, the model would ultrathink and generate a top 10 list of clarifying questions, repeatedly.
 
