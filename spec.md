@@ -4,7 +4,23 @@
 
 Claude Loop is an automation toolkit for running iterative Claude Code sessions with cost tracking, token monitoring, and inline visualization. It enables automated analysis and implementation workflows that can run unattended until specified limits are reached.
 
-### v2.0 Key Design Decisions
+### v2.0 Key Design Decisions & Clarifications
+
+**Recent Refinements (2025-11-03):**
+The following critical decisions have been finalized based on implementation planning:
+
+1. **Session Clearing**: Use `agent.clearSession()` SDK method exclusively (no fallback to /clear command)
+2. **Question Format**: Follow Claude Code SDK documentation recommendations for specify mode question output
+3. **Custom Prompts**: NOT supported in v2.0 - only built-in mode prompts (no -f flag)
+4. **Prompt Storage**: Embedded as TypeScript string constants in source code (not external files)
+5. **Specify Mode Behavior**: Loops continue until iteration limit reached (no auto-quit after single iteration)
+6. **Iteration Detection**: Use `onResult` event from SDK exclusively (no timeout fallbacks)
+7. **Limit Enforcement**: Cumulative only for cost and tokens (no per-iteration limits in v2.0)
+8. **Status Line**: Full Ink React component (not escape codes)
+9. **Error Handling**: Auto-retry with backoff, then skip iteration if exhausted (continue loop)
+10. **Package Scope**: CLI-only tool (no programmatic API in v2.0)
+11. **API Return Value**: Detailed LoopResult object with all statistics
+12. **Migration Path**: v1.0 bash script marked as legacy/deprecated (not removed)
 
 ### CRITICAL ARCHITECTURE DECISIONS
 
@@ -33,10 +49,12 @@ Bottom status line shows: `MODE | Iteration X/Y | Time: Xh Xm | Cost: $X.XX / $Y
 - Progress indicator shows current question number (e.g., "Question 3/8")
 
 **Prompt Strategy:**
-- Each mode has **hardcoded built-in prompt** (no `-f` flag needed)
+- Each mode has **hardcoded built-in prompt** (no `-f` flag supported - removed for simplicity)
+- Built-in prompts are **embedded as TypeScript string constants** in the source code
 - Prompts reference files that get updated (e.g., `@SPEC.md`, `@IMPLEMENTATION_PLAN.md`)
 - Prompt text **never changes** between iterations within same run
 - Fresh context comes from updated file contents, not prompt changes
+- Users cannot override built-in prompts with custom files
 
 **Built-in Prompts per Mode:**
 
@@ -49,12 +67,13 @@ Bottom status line shows: `MODE | Iteration X/Y | Time: Xh Xm | Cost: $X.XX / $Y
 2. **Specify Mode** (from `prompts/spec.md`):
    - Reads `@SPEC.md` and existing analysis
    - Generates 5-10 highest priority clarifying questions
-   - **Interactive**: Agent outputs questions in structured format (JSON/YAML)
+   - **Interactive**: Agent outputs questions in structured format per SDK documentation
    - Ink UI parses questions and presents one-by-one with keyboard navigation
    - User selects from agent-provided options or types custom answer
    - Answers fed back to agent for next iteration
    - Updates `@SPEC.md` based on user answers
-   - Commits changes and quits after iteration
+   - Commits changes after iteration
+   - **Loop continues**: Specify mode loops until iteration limit reached (no auto-quit after single iteration)
    - **Format requirement**: Agent must output questions in parseable structure for UI
 
 3. **Plan Mode** (from `prompts/plan.md`):
@@ -65,26 +84,27 @@ Bottom status line shows: `MODE | Iteration X/Y | Time: Xh Xm | Cost: $X.XX / $Y
    - Commits plan updates
 
 4. **Implement Mode** (from `prompts/implement.md`):
-   - Reads `@spec.md` and `@IMPLEMENTATION_PLAN.md`
+   - Reads `@SPEC.md` and `@IMPLEMENTATION_PLAN.md`
    - Picks highest priority item and implements using up to 50 subagents
    - Runs tests and checks
    - Updates plan and commits changes
    - Syncs plan with spec if discrepancies found
 
 **Core Architecture Decisions (finalized):**
-1. **Session Management**: Use streaming input mode with session persistence via `/clear` command between iterations (single long-lived process)
+1. **Session Management**: Use streaming input mode with session persistence via `agent.clearSession()` SDK method (single long-lived process)
 2. **Specify Mode Interaction**: Custom Ink UI components for question/answer flow with keyboard navigation (not SDK `onHumanInput`)
 3. **UI Framework**: Ink (React-based terminal UI) - completely replaces repomirror visualize
-4. **Error Handling**: Auto-retry with exponential backoff on rate limits and network errors
+4. **Error Handling**: Auto-retry with exponential backoff on rate limits and network errors; skip iteration if retries exhausted
 5. **Cost Tracking**: Use SDK's built-in pricing data from response objects (no custom pricing table)
 6. **Configuration**: JSON format (`.claude-loop.json`) with precedence: CLI args > Config file > Defaults
-7. **Prompts**: Hardcoded per mode (analyze/specify/plan/implement), stored in-memory, never change during run
+7. **Prompts**: Hardcoded per mode (analyze/specify/plan/implement), embedded as TypeScript string constants, never change during run
 8. **Workflow**: Mode-specific prompt loops with stateless iterations
 9. **State Management**: Stateless - agents write outputs to files (markdown, code), files provide fresh context
 10. **Testing**: Mock SDK responses for unit tests, minimal prompts for integration tests
-11. **Iteration Detection**: Use `/clear` command to reset context between iterations
-12. **Primary Use Case**: CLI tool (`claude-loop <mode>`) with programmatic API as secondary
-13. **Distribution**: Develop locally, publish to npm when v2.0 is feature-complete and stable
+11. **Iteration Detection**: Use `onResult` event from SDK to detect iteration completion
+12. **Primary Use Case**: CLI tool (`claude-loop <mode>`) - programmatic API not included in initial v2.0
+13. **Distribution**: Develop locally, publish to npm when v2.0 is feature-complete and stable; v1.0 bash script marked as legacy/deprecated
+14. **Limit Enforcement**: Cumulative cost and token limits only (no per-iteration limits)
 
 ## Purpose
 
@@ -95,7 +115,7 @@ Enable long-running, autonomous Claude Code sessions for:
 - **Cost-Controlled Exploration**: Exploratory coding within defined budget constraints
 
 **Session Management Strategy (v2.0):**
-Use streaming input mode with session persistence via dedicated SDK method between iterations.
+Use streaming input mode with session persistence via `agent.clearSession()` SDK method between iterations.
 
 **Rationale:**
 - Faster iteration times (no process spawning overhead)
@@ -105,17 +125,17 @@ Use streaming input mode with session persistence via dedicated SDK method betwe
 
 **Implementation:**
 - Single long-lived agent process
-- Call `agent.clearSession()` or equivalent SDK method between iterations to reset context
+- Call `agent.clearSession()` SDK method between iterations to reset context
 - Iteration completion detected via `onResult` event in streaming mode
 - Stateless design: agents write outputs to files (md, code)
 - Use TypeScript SDK (@anthropic-ai/claude-code)
-- Prompt file read once at loop start and cached for entire run
+- Built-in prompts embedded as TypeScript string constants (no file I/O during execution)
 
 ## Specify Mode Question Format
 
-In specify mode, the agent must output clarifying questions in a structured format that the Ink UI can parse and present interactively.
+In specify mode, the agent must output clarifying questions in a structured format that the Ink UI can parse and present interactively. The format should follow the recommendations from the Claude Code agent SDK documentation.
 
-**Expected Output Format (JSON):**
+**Expected Output Format (Per SDK Recommendations):**
 ```json
 {
   "questions": [
@@ -175,7 +195,7 @@ Should the --interactive flag be removed in v2.0?
 - [ ] Replace with different mechanism
 ```
 
-The Ink UI implementation will choose whichever format is more reliable to parse from agent output.
+The Ink UI implementation will use the format recommended by the Claude Code SDK documentation. If the SDK documentation does not specify a preferred format, the implementation will support parsing both JSON and markdown formats for maximum flexibility.
 
 ## SDK Integration Details (v2.0)
 
@@ -191,9 +211,10 @@ The v2.0 implementation uses the `@anthropic-ai/claude-code` SDK's event-driven 
 - `onToolResult` - Tool result events
 
 **Session Management:**
-- Use `agent.clearSession()` or equivalent SDK method to reset context between iterations
+- Use `agent.clearSession()` SDK method to reset context between iterations (verified to exist in @anthropic-ai/claude-code)
 - Single long-lived agent process for entire loop execution
 - Avoids process spawning overhead
+- No fallback to /clear command - rely on SDK's clearSession() API
 
 **Cost & Token Tracking:**
 - SDK provides built-in pricing data in response objects
@@ -324,27 +345,30 @@ The v2.0 implementation uses the `@anthropic-ai/claude-code` SDK's event-driven 
 ```
 
 **Key Design Decisions:**
-- **Session Persistence**: Single agent process with `agent.clearSession()` between iterations
-- **Interactive Mode**: Unified mode with `onHumanInput` callback triggered by SDK events (no separate mode)
-- **UI Framework**: Ink (React-based terminal UI) - completely replaces repomirror visualize
-- **Error Handling**: Auto-retry with exponential backoff on rate limits/network errors
-- **Cost Tracking**: Use SDK's built-in pricing data from response objects
+- **Session Persistence**: Single agent process with `agent.clearSession()` SDK method between iterations
+- **Interactive Mode**: Specify mode with Ink UI question/answer flow (not SDK `onHumanInput`)
+- **UI Framework**: Ink (React-based terminal UI) with full React components including status line
+- **Error Handling**: Auto-retry with exponential backoff on rate limits/network errors; skip iteration if retries exhausted
+- **Cost Tracking**: Use SDK's built-in pricing data from response objects; cumulative limits only
 - **Configuration**: JSON format (`.claude-loop.json`) with precedence: CLI > Config > Defaults
-- **Prompts**: Cached (read once at loop start)
-- **Workflow**: Single prompt only, stateless between iterations
+- **Prompts**: Embedded as TypeScript string constants (not read from files)
+- **Workflow**: Single built-in prompt per mode, stateless between iterations
 - **Testing**: Mock SDK responses for unit tests + minimal prompts for integration tests
-- **Iteration Detection**: Use `onResult` event in streaming mode
+- **Iteration Detection**: Use `onResult` event from SDK
+- **Package Scope**: CLI tool only (no programmatic API in v2.0)
+- **Migration**: v1.0 bash script marked as legacy/deprecated
 
 **Advantages:**
 - Single long-lived process (minimal overhead)
 - Native SDK integration with full feature support
 - Type-safe (TypeScript)
-- Direct event handling
-- Automatic retry logic for resilience
-- Rich terminal UI with Ink
+- Direct event handling via `onResult` events
+- Automatic retry logic for resilience (skip iteration on failure)
+- Rich terminal UI with Ink (full React components)
 - Cross-platform
-- Programmatic API
-- npm installable
+- CLI tool via npm (no programmatic API in v2.0)
+- npm installable globally or via npx
+- Embedded prompts (no external file dependencies)
 
 ## Features
 
@@ -406,12 +430,14 @@ Total cost: $0.14394070 / $100.00
 ### Limit Controls
 
 Multiple configurable limits:
-1. **Cost Limit**: Max USD spend (default: $100)
+1. **Cost Limit**: Max USD spend (default: $100) - **cumulative only**
 2. **Time Limit**: Max duration in hours (default: 12h)
 3. **Iteration Limit**: Max iterations (default: 1000)
-4. **Token Limit**: Max output tokens (default: 0 = unlimited)
+4. **Token Limit**: Max output tokens (default: 0 = unlimited) - **cumulative only**
 
 Loop stops when **any** limit is reached.
+
+**Note**: Cost and token limits are cumulative across all iterations. No per-iteration limits are enforced in v2.0.
 
 ### Configuration
 
@@ -438,15 +464,15 @@ claude-loop <mode> [OPTIONS]
 
 Modes (required - one of):
   analyze                  Run automated codebase analysis
-  specify                  Run interactive spec refinement (requires user input)
+  specify                  Run interactive spec refinement (loops until iteration limit)
   plan                     Run automated planning workflow
   implement                Run automated implementation
 
 Optional:
   -i, --iterations NUM     Max iterations (default: 1000)
-  -t, --tokens NUM         Max output tokens (default: 0 = unlimited)
+  -t, --tokens NUM         Max output tokens cumulative (default: 0 = unlimited)
   -d, --duration HOURS     Max duration in hours (default: 12)
-  -c, --max-cost USD       Max cost in USD (default: 100.0)
+  -c, --max-cost USD       Max cost in USD cumulative (default: 100.0)
   -p, --pause SECONDS      Pause between iterations (default: 0, non-interactive modes only)
   --config FILE            Path to config file (default: .claude-loop.json)
   --profile PROFILE        Use config profile (e.g., 'analysis', 'quick')
@@ -460,7 +486,8 @@ Examples:
   claude-loop implement -c 100.0 -d 12
 
 Note: CLI arguments take precedence over config file, which takes precedence over defaults
-Note: Each mode uses a hardcoded built-in prompt (no -f flag)
+Note: Each mode uses a hardcoded built-in prompt embedded in the CLI (no -f flag or custom prompts supported)
+Note: Cost and token limits are cumulative across all iterations
 ```
 
 **Configuration File (v2.0 - JSON format):**
@@ -605,26 +632,32 @@ Unattended development:
 
 ## API Design (v2.0)
 
-### Core API
+**Note**: v2.0 is a **CLI-only tool**. There is no programmatic API in the initial release. Future versions may add a programmatic API if there is demand.
+
+### CLI Interface
+
+The primary interface is the command-line tool installed via npm:
+
+```bash
+npm install -g claude-loop
+claude-loop <mode> [options]
+```
+
+### Internal TypeScript Interfaces (for implementation)
+
+These interfaces are used internally but not exported for programmatic use:
 
 ```typescript
 interface ClaudeLoopOptions {
   mode: 'analyze' | 'specify' | 'plan' | 'implement'; // Required
-  maxCost?: number;           // USD, default: 100
+  maxCost?: number;           // USD, default: 100 (cumulative)
   maxHours?: number;          // hours, default: 12
   maxIterations?: number;     // default: 1000
-  maxTokens?: number;         // 0 = unlimited, default: 0
+  maxTokens?: number;         // 0 = unlimited, default: 0 (cumulative)
   pauseSeconds?: number;      // default: 0 (non-interactive modes only)
   visualize?: boolean;        // default: true (Ink UI)
   logFile?: string;           // default: 'claude_loop.log'
   configFile?: string;        // default: '.claude-loop.json'
-
-  // Callbacks
-  onIteration?: (stats: IterationStats) => void;
-  onCostUpdate?: (cost: CostStats) => void;
-  onLimit?: (limit: LimitType, value: number) => void;
-  onQuestion?: (question: string, options: string[]) => Promise<string>; // For specify mode
-  onError?: (error: LoopError, retry: RetryInfo) => void;
 }
 
 interface IterationStats {
@@ -669,102 +702,41 @@ class ClaudeLoop {
   constructor(options: ClaudeLoopOptions); // options.mode is required
 
   // Main execution method
-  async run(): Promise<LoopResult>; // Uses built-in prompt for specified mode
+  async run(): Promise<LoopResult>; // Uses built-in embedded prompt for specified mode, returns detailed stats
 
-  // Control methods
+  // Control methods (for internal use)
   stop(): void;
   pause(): void;
   resume(): void;
   getStats(): LoopStats;
 
   // Session management (internal)
-  private async clearSession(): Promise<void>; // Sends /clear command to agent
-  private async handleRetry(error: LoopError): Promise<boolean>;
-  private async detectIterationComplete(): Promise<void>; // Detects when agent finishes iteration
-  private getBuiltInPrompt(mode: string): string; // Returns hardcoded prompt for mode
+  private async clearSession(): Promise<void>; // Calls agent.clearSession() SDK method
+  private async handleRetry(error: LoopError): Promise<boolean>; // Retries with backoff, skips iteration if exhausted
+  private async detectIterationComplete(): Promise<void>; // Waits for onResult event from SDK
+  private getBuiltInPrompt(mode: string): string; // Returns embedded TypeScript string constant for mode
 }
 ```
 
-### CLI API
+### CLI Usage
 
-```typescript
-// As global CLI tool
+```bash
+# Install globally
 npm install -g claude-loop
+
+# Use as global command
 claude-loop analyze -c 100 -d 12
 claude-loop specify -i 10
 claude-loop plan -c 50
 claude-loop implement -c 100 -d 12
 
-// As npx
+# Use via npx (no installation)
 npx claude-loop analyze -c 100 -d 12
 ```
 
-### Programmatic API
+### No Programmatic API in v2.0
 
-```typescript
-import { ClaudeLoop } from 'claude-loop';
-
-// Simple usage - automated mode
-const loop = new ClaudeLoop({
-  mode: 'analyze',
-  maxCost: 50
-});
-const result = await loop.run();
-
-console.log(`Completed ${result.iterations} iterations`);
-console.log(`Total cost: $${result.totalCost}`);
-
-// Advanced usage with callbacks and error handling
-const loop = new ClaudeLoop({
-  mode: 'implement',
-  maxCost: 100,
-  visualize: true,
-  onIteration: (stats) => {
-    console.log(`Iteration ${stats.iteration}: $${stats.cost}`);
-  },
-  onCostUpdate: (cost) => {
-    console.log(`Cost: $${cost.totalCost} / $${cost.maxCost}`);
-  },
-  onLimit: (limit, value) => {
-    console.log(`Limit reached: ${limit} = ${value}`);
-  },
-  onError: (error, retry) => {
-    console.log(`Error: ${error.message}`);
-    if (retry.attempt < retry.maxAttempts) {
-      console.log(`Retrying in ${retry.backoffMs}ms (attempt ${retry.attempt}/${retry.maxAttempts})`);
-    }
-  }
-});
-
-await loop.run();
-
-// Specify mode with custom question handler
-const specifyLoop = new ClaudeLoop({
-  mode: 'specify',
-  maxCost: 50,
-  onQuestion: async (question, options) => {
-    // Called for each clarifying question in specify mode
-    // Custom question/answer handler (bypasses Ink UI)
-    const readline = require('readline').createInterface({
-      input: process.stdin,
-      output: process.stdout
-    });
-    console.log(`\nQuestion: ${question}`);
-    options.forEach((opt, i) => console.log(`${i + 1}. ${opt}`));
-    console.log(`${options.length + 1}. Other (custom answer)`);
-
-    return new Promise((resolve) => {
-      readline.question('Select option: ', (answer) => {
-        readline.close();
-        const selection = parseInt(answer);
-        resolve(selection <= options.length ? options[selection - 1] : answer);
-      });
-    });
-  }
-});
-
-await specifyLoop.run();
-```
+v2.0 does not export a programmatic API. The tool is CLI-only. Future versions may add a Node.js API if there is demand, but the initial focus is on providing a robust command-line experience.
 
 ## Implementation Phases
 
@@ -783,25 +755,27 @@ await specifyLoop.run();
 ### Phase 2: Node.js Package (Future - v2.0)
 
 #### 2.1 Core SDK Integration
-- [ ] Initialize npm package
+- [ ] Initialize npm package (CLI-only, no programmatic API exports)
 - [ ] Install @anthropic-ai/claude-code
-- [ ] Create ClaudeLoop class
-- [ ] Implement query loop
-- [ ] Event stream handling
+- [ ] Create ClaudeLoop class (internal only)
+- [ ] Implement query loop with `agent.clearSession()` between iterations
+- [ ] Event stream handling via `onResult` for iteration detection
+- [ ] Embed built-in prompts as TypeScript string constants
 
 #### 2.2 Ink UI Visualization
 - [ ] Install Ink and dependencies (ink, react, ink-select-input, ink-text-input)
-- [ ] Create main UI component (App)
+- [ ] Create main UI component (App) - full React component architecture
 - [ ] Event stream visualizer component
 - [ ] Progress spinner component
 - [ ] Cost/token dashboard component
 - [ ] Error visualization component
-- [ ] Status bar component (mode, iterations, time, cost)
-- [ ] Specify mode question/answer component
+- [ ] Status bar component as full Ink component (mode, iterations, time, cost)
+- [ ] Specify mode question/answer component (per SDK documentation format)
   - [ ] Question display with prominence
   - [ ] Option selection with keyboard navigation (arrow keys)
   - [ ] "Other" option for custom text input
   - [ ] Progress indicator (e.g., "Question 3/8")
+  - [ ] Loop continues until iteration limit (no auto-quit)
 - [ ] Real-time updates with React state
 
 #### 2.3 Cost & Token Tracking
@@ -809,8 +783,8 @@ await specifyLoop.run();
 - [ ] No custom pricing table needed - trust SDK pricing data
 - [ ] Per-model accumulation from SDK responses
 - [ ] Real-time cost updates via `onResult` event
-- [ ] Limit threshold checking after each iteration
-- [ ] Cost callbacks (onCostUpdate) triggered by SDK events
+- [ ] Cumulative limit threshold checking after each iteration (no per-iteration limits)
+- [ ] Display cumulative costs and tokens in Ink UI
 
 #### 2.4 Retry & Error Handling
 - [ ] Detect error types (rate_limit, network, api_error)
@@ -818,41 +792,45 @@ await specifyLoop.run();
 - [ ] Rate limit detection and handling
 - [ ] Network error recovery
 - [ ] Max retry attempts configuration
-- [ ] Error callbacks (onError)
-- [ ] Detailed error logging
+- [ ] Skip iteration if retries exhausted (do not stop entire loop)
+- [ ] Detailed error logging to log file
 
 #### 2.5 CLI Interface
 - [ ] Argument parsing (commander)
-- [ ] Mode-based command structure (analyze/specify/plan/implement)
+- [ ] Mode-based command structure (analyze/specify/plan/implement) - no -f flag for custom prompts
 - [ ] Help text and examples for each mode
 - [ ] Config file loading (JSON)
 - [ ] Profile support (mode-specific defaults)
-- [ ] Validation (mode required, conflicting options)
-- [ ] Binary setup (package.json bin field)
-- [ ] Built-in prompt storage (hardcoded per mode)
+- [ ] Validation (mode required, no custom prompt files allowed)
+- [ ] Binary setup (package.json bin field) - CLI-only, no programmatic API
+- [ ] Built-in prompt storage (embedded TypeScript string constants)
 
-#### 2.6 Programmatic API
-- [ ] TypeScript types and interfaces
+#### 2.6 Internal Architecture (No Public API)
+- [ ] TypeScript types and interfaces (internal only, not exported)
 - [ ] ClaudeLoopOptions interface with mode parameter
-- [ ] Callback system (onIteration, onCostUpdate, onLimit, onQuestion for specify mode, onError)
-- [ ] Control methods (pause, resume, stop)
-- [ ] Session management (/clear command between iterations)
+- [ ] Internal control methods (pause, resume, stop) - not exposed to users
+- [ ] Session management (agent.clearSession() SDK method between iterations)
 - [ ] Stateless iteration design
-- [ ] Built-in prompt retrieval (getBuiltInPrompt method)
-- [ ] Iteration detection (agent completion signals)
+- [ ] Built-in prompt retrieval (getBuiltInPrompt method returns embedded strings)
+- [ ] Iteration detection (onResult event from SDK)
+- [ ] Return detailed LoopResult from run() method for CLI display
 
 #### 2.7 Testing & Documentation
 - [ ] Unit tests with mocked SDK responses (cost tracking, limits, retry logic)
 - [ ] Integration tests with minimal prompts (end-to-end loop execution)
 - [ ] Basic feedback loop tests
-- [ ] API documentation (types, interfaces)
-- [ ] Usage examples (simple, advanced, interactive with SDK events)
+- [ ] CLI documentation (command-line options, modes)
+- [ ] Usage examples (CLI usage only, no programmatic API examples)
 - [ ] README update for v2.0
-- [ ] Migration guide from v1.0
-- [ ] Document SDK event-driven architecture
+- [ ] Migration guide from v1.0 (mark bash script as deprecated)
+- [ ] Document SDK event-driven architecture (agent.clearSession(), onResult)
+- [ ] Document embedded prompt architecture
 
 ### Phase 3: Enhanced Features (Future - v3.0)
 
+- [ ] Programmatic API (if there is demand)
+- [ ] Custom prompt support (add -f flag or 'custom' mode)
+- [ ] Per-iteration cost/token limits (in addition to cumulative)
 - [ ] Multiple prompts in sequence
 - [ ] Conditional branching
 - [ ] Result aggregation
@@ -905,8 +883,9 @@ await specifyLoop.run();
 **Distribution Strategy:**
 - Develop locally until v2.0 is feature-complete and stable
 - Publish to npm registry only when ready for production use
-- Primary focus: CLI tool (`claude-loop` command)
-- Secondary: Programmatic API for Node.js applications
+- Primary focus: CLI tool (`claude-loop` command) only
+- No programmatic API in v2.0 (may be added in v3.0 if there is demand)
+- v1.0 bash script marked as legacy/deprecated in README
 
 ## Performance Considerations
 
@@ -917,14 +896,14 @@ await specifyLoop.run();
 
 ### Future Implementation (v2.0)
 - No subprocess overhead (single long-lived process)
-- Session persistence with `agent.clearSession()` (faster than respawning)
+- Session persistence with `agent.clearSession()` SDK method (faster than respawning)
 - Native object access from SDK (no JSON parsing)
-- Iteration detection via `onResult` event (no polling)
+- Iteration detection via `onResult` event from SDK (no polling)
 - Ink UI rendering overhead: ~5-10ms per update
 - Memory: ~100-200MB (Node.js + SDK + Ink + React)
 - Estimated 20-30% performance improvement over v1.0
-- Retry logic may add latency during failures (acceptable trade-off)
-- Prompt caching reduces file I/O overhead
+- Retry logic may add latency during failures but skips iteration if exhausted (acceptable trade-off)
+- Embedded prompts eliminate file I/O overhead (no prompt file reading)
 
 ## Security Considerations
 
