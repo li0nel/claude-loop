@@ -6,19 +6,84 @@ Claude Loop is an automation toolkit for running iterative Claude Code sessions 
 
 ### v2.0 Key Design Decisions
 
-**Architecture Decisions (finalized):**
-1. **Session Management**: Use streaming input mode with session persistence via dedicated SDK method (e.g., `agent.clearSession()`) between iterations (single long-lived process)
-2. **Interactive Mode**: Unified mode with `onHumanInput` callback triggered by SDK events (no separate interactive mode)
+### CRITICAL ARCHITECTURE DECISIONS
+
+**Mode-Based Command Structure:**
+Claude Loop v2.0 operates in four distinct modes, each with a hardcoded built-in prompt:
+
+1. **`claude-loop analyze`** - Automated codebase analysis (non-interactive)
+2. **`claude-loop specify`** - Interactive spec refinement (requires user input)
+3. **`claude-loop plan`** - Automated planning workflow (non-interactive)
+4. **`claude-loop implement`** - Automated implementation (non-interactive)
+
+**Mode determines behavior:**
+- **Non-interactive modes** (analyze/plan/implement): Loop over same hardcoded prompt + `/clear`, no user input required
+- **Interactive mode** (specify): Agent generates questions, user answers via Ink UI with keyboard navigation
+
+**Status Line (All Modes):**
+Bottom status line shows: `MODE | Iteration X/Y | Time: Xh Xm | Cost: $X.XX / $Y.YY`
+- Always visible in all modes
+- Updates in real-time during execution
+
+**Specify Mode UI Pattern:**
+- Agent generates 5-10 clarifying questions per iteration
+- Display **one question at a time** with prominent layout
+- User selects from **agent-provided options** or chooses "Other" to type custom answer
+- Ink UI handles keyboard navigation (arrow keys, enter to confirm)
+- Progress indicator shows current question number (e.g., "Question 3/8")
+
+**Prompt Strategy:**
+- Each mode has **hardcoded built-in prompt** (no `-f` flag needed)
+- Prompts reference files that get updated (e.g., `@SPEC.md`, `@IMPLEMENTATION_PLAN.md`)
+- Prompt text **never changes** between iterations within same run
+- Fresh context comes from updated file contents, not prompt changes
+
+**Built-in Prompts per Mode:**
+
+1. **Analyze Mode** (from `prompts/analyze.md`):
+   - Proposes 8-12 analytical perspectives, saves to `@ANALYSIS_PLAN.md`
+   - Picks highest priority item and researches using up to 50 subagents
+   - Saves findings to `@analysis/index.md` and `@analysis/assets/`
+   - Commits progress after each iteration
+
+2. **Specify Mode** (from `prompts/spec.md`):
+   - Reads `@SPEC.md` and existing analysis
+   - Generates 5-10 highest priority clarifying questions
+   - **Interactive**: Agent outputs questions in structured format (JSON/YAML)
+   - Ink UI parses questions and presents one-by-one with keyboard navigation
+   - User selects from agent-provided options or types custom answer
+   - Answers fed back to agent for next iteration
+   - Updates `@SPEC.md` based on user answers
+   - Commits changes and quits after iteration
+   - **Format requirement**: Agent must output questions in parseable structure for UI
+
+3. **Plan Mode** (from `prompts/plan.md`):
+   - Reads `@SPEC.md` and `@analysis/index.md`
+   - Ultrathinks about implementation approach
+   - Creates/updates `@IMPLEMENTATION_PLAN.md` with up to 20 phases
+   - Each phase scoped for easy review
+   - Commits plan updates
+
+4. **Implement Mode** (from `prompts/implement.md`):
+   - Reads `@spec.md` and `@IMPLEMENTATION_PLAN.md`
+   - Picks highest priority item and implements using up to 50 subagents
+   - Runs tests and checks
+   - Updates plan and commits changes
+   - Syncs plan with spec if discrepancies found
+
+**Core Architecture Decisions (finalized):**
+1. **Session Management**: Use streaming input mode with session persistence via `/clear` command between iterations (single long-lived process)
+2. **Specify Mode Interaction**: Custom Ink UI components for question/answer flow with keyboard navigation (not SDK `onHumanInput`)
 3. **UI Framework**: Ink (React-based terminal UI) - completely replaces repomirror visualize
 4. **Error Handling**: Auto-retry with exponential backoff on rate limits and network errors
 5. **Cost Tracking**: Use SDK's built-in pricing data from response objects (no custom pricing table)
 6. **Configuration**: JSON format (`.claude-loop.json`) with precedence: CLI args > Config file > Defaults
-7. **Prompts**: Cached (read once at loop start, no re-reading between iterations)
-8. **Workflow**: Single prompt only, stateless between iterations
-9. **State Management**: Stateless - agents write outputs to files (markdown, code)
+7. **Prompts**: Hardcoded per mode (analyze/specify/plan/implement), stored in-memory, never change during run
+8. **Workflow**: Mode-specific prompt loops with stateless iterations
+9. **State Management**: Stateless - agents write outputs to files (markdown, code), files provide fresh context
 10. **Testing**: Mock SDK responses for unit tests, minimal prompts for integration tests
-11. **Iteration Detection**: Use `onResult` event to detect iteration completion in streaming mode
-12. **Primary Use Case**: CLI tool (`claude-loop -f prompt.md`) with programmatic API as secondary
+11. **Iteration Detection**: Use `/clear` command to reset context between iterations
+12. **Primary Use Case**: CLI tool (`claude-loop <mode>`) with programmatic API as secondary
 13. **Distribution**: Develop locally, publish to npm when v2.0 is feature-complete and stable
 
 ## Purpose
@@ -45,6 +110,72 @@ Use streaming input mode with session persistence via dedicated SDK method betwe
 - Stateless design: agents write outputs to files (md, code)
 - Use TypeScript SDK (@anthropic-ai/claude-code)
 - Prompt file read once at loop start and cached for entire run
+
+## Specify Mode Question Format
+
+In specify mode, the agent must output clarifying questions in a structured format that the Ink UI can parse and present interactively.
+
+**Expected Output Format (JSON):**
+```json
+{
+  "questions": [
+    {
+      "id": 1,
+      "question": "How should modes be determined or configured?",
+      "options": [
+        "Explicitly specified by user (e.g., --mode=analysis)",
+        "Inferred from prompt content",
+        "Determined by config file field"
+      ]
+    },
+    {
+      "id": 2,
+      "question": "Should the --interactive flag be removed in v2.0?",
+      "options": [
+        "Yes, remove entirely",
+        "No, keep for backward compatibility",
+        "Replace with different mechanism"
+      ]
+    }
+  ]
+}
+```
+
+**Ink UI Workflow:**
+1. Detects specify mode is active
+2. Monitors agent output for question structure (JSON block or special markers)
+3. Parses questions array
+4. For each question:
+   - Displays question prominently
+   - Shows options with keyboard navigation (arrow keys)
+   - Adds "Other (custom answer)" option automatically
+   - User selects option or enters custom text
+   - Stores answer
+5. After all questions answered, feeds answers back to agent
+6. Agent updates `@SPEC.md` based on answers
+
+**Alternative Format (Markdown with markers):**
+```markdown
+## Clarifying Questions
+
+### Question 1
+How should modes be determined or configured?
+
+**Options:**
+- [ ] Explicitly specified by user (e.g., --mode=analysis)
+- [ ] Inferred from prompt content
+- [ ] Determined by config file field
+
+### Question 2
+Should the --interactive flag be removed in v2.0?
+
+**Options:**
+- [ ] Yes, remove entirely
+- [ ] No, keep for backward compatibility
+- [ ] Replace with different mechanism
+```
+
+The Ink UI implementation will choose whichever format is more reliable to parse from agent output.
 
 ## SDK Integration Details (v2.0)
 
@@ -303,23 +434,33 @@ Optional:
 
 **CLI Arguments (v2.0 - future):**
 ```bash
-claude-loop -f PROMPT_FILE [OPTIONS]
+claude-loop <mode> [OPTIONS]
 
-Required:
-  -f, --prompt-file FILE   Path to prompt file (cached for entire run)
+Modes (required - one of):
+  analyze                  Run automated codebase analysis
+  specify                  Run interactive spec refinement (requires user input)
+  plan                     Run automated planning workflow
+  implement                Run automated implementation
 
 Optional:
   -i, --iterations NUM     Max iterations (default: 1000)
   -t, --tokens NUM         Max output tokens (default: 0 = unlimited)
   -d, --duration HOURS     Max duration in hours (default: 12)
   -c, --max-cost USD       Max cost in USD (default: 100.0)
-  -p, --pause SECONDS      Pause between iterations (default: 0)
+  -p, --pause SECONDS      Pause between iterations (default: 0, non-interactive modes only)
   --config FILE            Path to config file (default: .claude-loop.json)
   --profile PROFILE        Use config profile (e.g., 'analysis', 'quick')
   --no-ui                  Disable Ink UI (plain text output)
   -h, --help               Show this help message
 
+Examples:
+  claude-loop analyze -c 20.0 -d 4
+  claude-loop specify -i 10
+  claude-loop plan -c 50.0
+  claude-loop implement -c 100.0 -d 12
+
 Note: CLI arguments take precedence over config file, which takes precedence over defaults
+Note: Each mode uses a hardcoded built-in prompt (no -f flag)
 ```
 
 **Configuration File (v2.0 - JSON format):**
@@ -334,19 +475,38 @@ Note: CLI arguments take precedence over config file, which takes precedence ove
     "visualize": true,
     "logFile": "claude_loop.log"
   },
-  "profiles": {
-    "analysis": {
+  "modes": {
+    "analyze": {
       "maxCost": 50.0,
-      "maxHours": 4
+      "maxHours": 4,
+      "maxIterations": 100
     },
-    "implementation": {
+    "specify": {
+      "maxCost": 20.0,
+      "maxHours": 2,
+      "maxIterations": 10
+    },
+    "plan": {
+      "maxCost": 30.0,
+      "maxHours": 3,
+      "maxIterations": 50
+    },
+    "implement": {
       "maxCost": 100.0,
-      "maxHours": 12
-    },
+      "maxHours": 12,
+      "maxIterations": 1000
+    }
+  },
+  "profiles": {
     "quick": {
       "maxCost": 5.0,
       "maxHours": 1,
       "maxIterations": 10
+    },
+    "extended": {
+      "maxCost": 200.0,
+      "maxHours": 24,
+      "maxIterations": 2000
     }
   }
 }
@@ -356,8 +516,9 @@ Note: CLI arguments take precedence over config file, which takes precedence ove
 ```typescript
 import { ClaudeLoop } from 'claude-loop';
 
-// Simple usage
+// Automated modes (analyze/plan/implement)
 const loop = new ClaudeLoop({
+  mode: 'analyze',
   maxCost: 100.0,
   maxHours: 12,
   maxIterations: 1000,
@@ -367,22 +528,25 @@ const loop = new ClaudeLoop({
   logFile: 'claude_loop.log'
 });
 
-await loop.run('prompt.md');
+await loop.run();
 
-// With callbacks for interactive mode (triggered by SDK events)
-const loopInteractive = new ClaudeLoop({
+// Interactive mode (specify) with custom question handler
+const loopSpecify = new ClaudeLoop({
+  mode: 'specify',
   maxCost: 50.0,
-  onHumanInput: async (prompt) => {
-    // Called automatically when SDK fires human input event
-    // Custom logic to get human input
-    return await getUserInput(prompt);
+  onQuestion: async (question, options) => {
+    // Called for each clarifying question in specify mode
+    // question: string - The question text
+    // options: string[] - Agent-provided answer options
+    // Return: selected option or custom answer
+    return await getUserAnswer(question, options);
   },
   onIteration: (stats) => {
     console.log(`Iteration ${stats.iteration}: $${stats.cost}`);
   }
 });
 
-await loopInteractive.run('spec.md');
+await loopSpecify.run();
 ```
 
 ## Use Cases
@@ -445,11 +609,12 @@ Unattended development:
 
 ```typescript
 interface ClaudeLoopOptions {
+  mode: 'analyze' | 'specify' | 'plan' | 'implement'; // Required
   maxCost?: number;           // USD, default: 100
   maxHours?: number;          // hours, default: 12
   maxIterations?: number;     // default: 1000
   maxTokens?: number;         // 0 = unlimited, default: 0
-  pauseSeconds?: number;      // default: 0
+  pauseSeconds?: number;      // default: 0 (non-interactive modes only)
   visualize?: boolean;        // default: true (Ink UI)
   logFile?: string;           // default: 'claude_loop.log'
   configFile?: string;        // default: '.claude-loop.json'
@@ -458,7 +623,7 @@ interface ClaudeLoopOptions {
   onIteration?: (stats: IterationStats) => void;
   onCostUpdate?: (cost: CostStats) => void;
   onLimit?: (limit: LimitType, value: number) => void;
-  onHumanInput?: (prompt: string) => Promise<string>; // For interactive mode
+  onQuestion?: (question: string, options: string[]) => Promise<string>; // For specify mode
   onError?: (error: LoopError, retry: RetryInfo) => void;
 }
 
@@ -501,11 +666,10 @@ interface RetryInfo {
 }
 
 class ClaudeLoop {
-  constructor(options?: ClaudeLoopOptions);
+  constructor(options: ClaudeLoopOptions); // options.mode is required
 
-  // Main execution methods
-  async run(promptFile: string): Promise<LoopResult>;
-  async runWithPrompt(prompt: string): Promise<LoopResult>;
+  // Main execution method
+  async run(): Promise<LoopResult>; // Uses built-in prompt for specified mode
 
   // Control methods
   stop(): void;
@@ -514,9 +678,10 @@ class ClaudeLoop {
   getStats(): LoopStats;
 
   // Session management (internal)
-  private async clearSession(): Promise<void>; // Calls agent.clearSession() or equivalent
+  private async clearSession(): Promise<void>; // Sends /clear command to agent
   private async handleRetry(error: LoopError): Promise<boolean>;
-  private async detectIterationComplete(): Promise<void>; // Waits for onResult event
+  private async detectIterationComplete(): Promise<void>; // Detects when agent finishes iteration
+  private getBuiltInPrompt(mode: string): string; // Returns hardcoded prompt for mode
 }
 ```
 
@@ -525,10 +690,13 @@ class ClaudeLoop {
 ```typescript
 // As global CLI tool
 npm install -g claude-loop
-claude-loop -f prompt.md -c 100 -d 12
+claude-loop analyze -c 100 -d 12
+claude-loop specify -i 10
+claude-loop plan -c 50
+claude-loop implement -c 100 -d 12
 
 // As npx
-npx claude-loop -f prompt.md -c 100 -d 12
+npx claude-loop analyze -c 100 -d 12
 ```
 
 ### Programmatic API
@@ -536,15 +704,19 @@ npx claude-loop -f prompt.md -c 100 -d 12
 ```typescript
 import { ClaudeLoop } from 'claude-loop';
 
-// Simple usage
-const loop = new ClaudeLoop({ maxCost: 50 });
-const result = await loop.run('analysis_prompt.md');
+// Simple usage - automated mode
+const loop = new ClaudeLoop({
+  mode: 'analyze',
+  maxCost: 50
+});
+const result = await loop.run();
 
 console.log(`Completed ${result.iterations} iterations`);
 console.log(`Total cost: $${result.totalCost}`);
 
 // Advanced usage with callbacks and error handling
 const loop = new ClaudeLoop({
+  mode: 'implement',
   maxCost: 100,
   visualize: true,
   onIteration: (stats) => {
@@ -564,28 +736,34 @@ const loop = new ClaudeLoop({
   }
 });
 
-await loop.run('implementation_prompt.md');
+await loop.run();
 
-// Interactive mode with human input (triggered by SDK events)
-const interactiveLoop = new ClaudeLoop({
+// Specify mode with custom question handler
+const specifyLoop = new ClaudeLoop({
+  mode: 'specify',
   maxCost: 50,
-  onHumanInput: async (prompt) => {
-    // Called automatically when SDK fires human input event
-    // Custom human input handler
+  onQuestion: async (question, options) => {
+    // Called for each clarifying question in specify mode
+    // Custom question/answer handler (bypasses Ink UI)
     const readline = require('readline').createInterface({
       input: process.stdin,
       output: process.stdout
     });
+    console.log(`\nQuestion: ${question}`);
+    options.forEach((opt, i) => console.log(`${i + 1}. ${opt}`));
+    console.log(`${options.length + 1}. Other (custom answer)`);
+
     return new Promise((resolve) => {
-      readline.question(prompt, (answer) => {
+      readline.question('Select option: ', (answer) => {
         readline.close();
-        resolve(answer);
+        const selection = parseInt(answer);
+        resolve(selection <= options.length ? options[selection - 1] : answer);
       });
     });
   }
 });
 
-await interactiveLoop.run('spec_prompt.md');
+await specifyLoop.run();
 ```
 
 ## Implementation Phases
@@ -612,14 +790,18 @@ await interactiveLoop.run('spec_prompt.md');
 - [ ] Event stream handling
 
 #### 2.2 Ink UI Visualization
-- [ ] Install Ink and dependencies (ink, react)
+- [ ] Install Ink and dependencies (ink, react, ink-select-input, ink-text-input)
 - [ ] Create main UI component (App)
 - [ ] Event stream visualizer component
 - [ ] Progress spinner component
 - [ ] Cost/token dashboard component
 - [ ] Error visualization component
-- [ ] Interactive input component (for onHumanInput)
-- [ ] Status bar component
+- [ ] Status bar component (mode, iterations, time, cost)
+- [ ] Specify mode question/answer component
+  - [ ] Question display with prominence
+  - [ ] Option selection with keyboard navigation (arrow keys)
+  - [ ] "Other" option for custom text input
+  - [ ] Progress indicator (e.g., "Question 3/8")
 - [ ] Real-time updates with React state
 
 #### 2.3 Cost & Token Tracking
@@ -641,21 +823,23 @@ await interactiveLoop.run('spec_prompt.md');
 
 #### 2.5 CLI Interface
 - [ ] Argument parsing (commander)
-- [ ] Help text and examples
+- [ ] Mode-based command structure (analyze/specify/plan/implement)
+- [ ] Help text and examples for each mode
 - [ ] Config file loading (JSON)
-- [ ] Profile support
-- [ ] Validation
+- [ ] Profile support (mode-specific defaults)
+- [ ] Validation (mode required, conflicting options)
 - [ ] Binary setup (package.json bin field)
+- [ ] Built-in prompt storage (hardcoded per mode)
 
 #### 2.6 Programmatic API
 - [ ] TypeScript types and interfaces
-- [ ] ClaudeLoopOptions interface
-- [ ] Callback system (onIteration, onCostUpdate, onLimit, onHumanInput triggered by SDK events, onError)
+- [ ] ClaudeLoopOptions interface with mode parameter
+- [ ] Callback system (onIteration, onCostUpdate, onLimit, onQuestion for specify mode, onError)
 - [ ] Control methods (pause, resume, stop)
-- [ ] Session management (agent.clearSession() between iterations)
+- [ ] Session management (/clear command between iterations)
 - [ ] Stateless iteration design
-- [ ] Prompt caching (read once at start)
-- [ ] Iteration detection via onResult event
+- [ ] Built-in prompt retrieval (getBuiltInPrompt method)
+- [ ] Iteration detection (agent completion signals)
 
 #### 2.7 Testing & Documentation
 - [ ] Unit tests with mocked SDK responses (cost tracking, limits, retry logic)
@@ -876,16 +1060,22 @@ Total time: 0h 23m 42s
 
 **File Location:** `.claude-loop.json` in project root or `~/.config/claude-loop/config.json`
 
-**Usage:**
-```bash
-# Use default profile
-claude-loop -f prompt.md
+**Configuration Precedence:**
+CLI args > Profile settings > Mode defaults > Global defaults
 
-# Use specific profile
-claude-loop -f prompt.md --profile analysis
+**Usage Examples:**
+```bash
+# Use mode defaults from config
+claude-loop analyze
+
+# Use specific profile (overrides mode defaults)
+claude-loop analyze --profile quick
+
+# Override with CLI args (highest precedence)
+claude-loop implement --profile extended -c 150.0
 
 # Use custom config file
-claude-loop -f prompt.md --config ./my-config.json
+claude-loop plan --config ./my-config.json
 ```
 
 ## Testing Strategy
