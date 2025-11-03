@@ -18,20 +18,7 @@ The quality of those questions was staggering. It felt like a mid-level dev firi
 
 Experimentation followed to make analysis recursive across many context windows, saving results to support progressive disclosure—much like how Claude Skills are designed. I later found that the idea of also concurrently running analysis from different perspectives wasn't novel ([see here](https://nmn.gl/blog/ai-understand-senior-developer)).
 
-Here you have it: a set of unscrupulous prompts, some slash commands, subagents, and a bash file. It may look ridiculous—but it works surprisingly well.
-
-## Quick Start
-
-```bash
-# Prerequisites: Claude CLI, jq, bc, npx
-brew install jq  # macOS
-# apt-get install jq bc  # Linux
-
-# Download and run
-curl -O https://raw.githubusercontent.com/li0nel/claude-loop/main/claude_loop.sh
-chmod +x claude_loop.sh
-./claude_loop.sh -f prompts/analyze.md -c 50.0 -d 4
-```
+Here you have it: a set of unscrupulous prompts, some slash commands (from [HumanLayer](https://github.com/humanlayer/humanlayer) - still needs cleaning), subagents, and a bash file. It may look ridiculous—but it works surprisingly well.
 
 ## Usage
 
@@ -54,17 +41,22 @@ Optional:
 
 **Automated analysis:**
 ```bash
-./claude_loop.sh -f prompts/analyze.md -c 50.0 -d 4
+./claude_loop.sh -f prompts/analyze.md -c 20.0 -d 4
+```
+
+**Interactive spec refinement:**
+```bash
+./claude_loop.sh -f prompts/spec.md --interactive -i 10
+```
+
+**Plan:**
+```bash
+./claude_loop.sh -f prompts/plan.md -c 50.0 -d 12
 ```
 
 **Feature implementation:**
 ```bash
 ./claude_loop.sh -f prompts/implement.md -c 100.0 -d 12
-```
-
-**Interactive spec refinement:**
-```bash
-./claude_loop.sh -f prompts/spec.md --interactive
 ```
 
 ## Features
@@ -75,19 +67,6 @@ Optional:
 - **Multiple Limits**: Stops when any limit reached (cost, time, iterations, tokens)
 - **Interactive Mode**: Human-in-the-loop for spec refinement workflows
 
-### Example Output
-
-```
-=== Model Usage ===
-  claude-sonnet-4-5@20250929:
-    Input: 8 tokens
-    Output: 122 tokens
-    Cache Read: 16107 tokens
-    Cost: $0.067
-
-Total cost: $0.14 / $100.00
-```
-
 ## Included Prompts
 
 Located in `prompts/`:
@@ -97,65 +76,16 @@ Located in `prompts/`:
 - **`plan.md`**: Planning workflow for complex tasks
 - **`spec.md`**: Interactive specification refinement
 
-## How It Works
+## How It Works (for now)
 
 1. Reads prompt from markdown file
 2. Pipes to Claude CLI with `--output-format stream-json`
-3. Visualizes output via `repomirror`
+3. Visualizes output via `npx repomirror`
 4. Parses JSON for costs and tokens
 5. Checks limits (cost, tokens, time, iterations)
 6. Continues or exits based on limits
 
 See [`specs/npm-migration.md`](specs/npm-migration.md) for NPM package migration specification.
-
-## Writing Effective Prompts
-
-Good loop prompts should:
-1. Have clear objectives
-2. Specify output locations
-3. Include progress tracking
-4. Auto-commit changes
-5. Be idempotent (safe to re-run)
-
-```markdown
-# Task: [Description]
-
-## Objectives
-1. [Primary objective]
-
-## Process
-1. Read [input files]
-2. Perform [work]
-3. Save to [output location]
-4. Commit changes
-
-## Success Criteria
-- [ ] Criterion 1
-```
-
-## Troubleshooting
-
-**Script won't start:**
-```bash
-which claude jq bc npx  # Check dependencies
-chmod +x claude_loop.sh  # Fix permissions
-```
-
-**Cost not tracking:**
-- Verify `jq` is installed: `echo '{"test": 1}' | jq .`
-
-**Visualization not working:**
-```bash
-npx repomirror visualize  # Test installation
-```
-
-Check `claude_loop.log` for detailed error messages.
-
-## Resources
-
-- [Claude Code Documentation](https://docs.claude.com/en/docs/claude-code)
-- [NPM Migration Spec](specs/npm-migration.md)
-- [Claude SDK](https://www.npmjs.com/package/@anthropic-ai/claude-code)
 
 ## License
 
