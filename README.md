@@ -2,6 +2,24 @@
 
 Automation toolkit for running iterative Claude Code sessions with cost tracking and token monitoring.
 
+## Background
+
+This repository is inspired by Dex Horthy's talk on [advanced context engineering for coding agents](https://www.youtube.com/watch?v=VvkhYWFWaKI). From the very first time I saw this video, the ideas stuck hard.
+
+After that, about a dozen Spec Driven Development workflows were tried. While they all made sense, many felt a bit too opinionated in ways that didn't add much value. Shifting the core of the work to spec definition, however, clearly made sense.
+
+The real game changer became obvious: write specs by day, let the agent rip through implementation at night.
+
+Then I came across Geoffrey Huntley's technique of [running Claude Code in continuous loops](https://lnkd.in/gzd8DH8d), further detailed in [this interview with Dex Horthy](https://github.com/ai-that-works/ai-that-works/tree/main/2025-10-28-ralph-wiggum-coding-agent-power-tools). The promise? A simple prompt asking the model to pick the highest priority item, implement, test, commit, then quit—run in an endless loop with fresh context every time—actually delivers. Similar conclusions were reached by Dex's team at this YC Agents hackathon.
+
+I then applied the same principles to spec writing, but with a human in the loop this time. Starting from a one-line spec, the model would ultrathink and generate a top 10 list of clarifying questions, repeatedly.
+
+The quality of those questions was staggering. It felt like a mid-level dev firing off exactly what would've come days later, compressed into a fast two-hour session.
+
+Experimentation followed to make analysis recursive across many context windows, saving results to support progressive disclosure—much like how Claude Skills are designed. I later found that the idea of also concurrently running analysis from different perspectives wasn't novel ([see here](https://nmn.gl/blog/ai-understand-senior-developer)).
+
+Here you have it: a set of unscrupulous prompts, some slash commands, subagents, and a bash file. It may look ridiculous—but it works surprisingly well.
+
 ## Quick Start
 
 ```bash
