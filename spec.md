@@ -7,16 +7,19 @@ Claude Loop is an automation toolkit for running iterative Claude Code sessions 
 ### v2.0 Key Design Decisions
 
 **Architecture Decisions (finalized):**
-1. **Session Management**: Use streaming input mode with session persistence via `/clear` between iterations (single long-lived process)
-2. **Interactive Mode**: Unified mode with `onHumanInput` callback (no separate interactive mode)
-3. **UI Framework**: Ink (React-based terminal UI) for rich visualization
+1. **Session Management**: Use streaming input mode with session persistence via dedicated SDK method (e.g., `agent.clearSession()`) between iterations (single long-lived process)
+2. **Interactive Mode**: Unified mode with `onHumanInput` callback triggered by SDK events (no separate interactive mode)
+3. **UI Framework**: Ink (React-based terminal UI) - completely replaces repomirror visualize
 4. **Error Handling**: Auto-retry with exponential backoff on rate limits and network errors
-5. **Cost Tracking**: Trust SDK's built-in pricing (no custom pricing table)
-6. **Configuration**: JSON format (`.claude-loop.json`)
-7. **Prompts**: Static (read once per iteration, no dynamic modification)
+5. **Cost Tracking**: Use SDK's built-in pricing data from response objects (no custom pricing table)
+6. **Configuration**: JSON format (`.claude-loop.json`) with precedence: CLI args > Config file > Defaults
+7. **Prompts**: Cached (read once at loop start, no re-reading between iterations)
 8. **Workflow**: Single prompt only, stateless between iterations
 9. **State Management**: Stateless - agents write outputs to files (markdown, code)
-10. **Testing**: Full spec implementation with basic feedback loop tests
+10. **Testing**: Mock SDK responses for unit tests, minimal prompts for integration tests
+11. **Iteration Detection**: Use `onResult` event to detect iteration completion in streaming mode
+12. **Primary Use Case**: CLI tool (`claude-loop -f prompt.md`) with programmatic API as secondary
+13. **Distribution**: Develop locally, publish to npm when v2.0 is feature-complete and stable
 
 ## Purpose
 
@@ -27,7 +30,7 @@ Enable long-running, autonomous Claude Code sessions for:
 - **Cost-Controlled Exploration**: Exploratory coding within defined budget constraints
 
 **Session Management Strategy (v2.0):**
-Use streaming input mode (--input-stream-mode) with session persistence via /clear between iterations.
+Use streaming input mode with session persistence via dedicated SDK method between iterations.
 
 **Rationale:**
 - Faster iteration times (no process spawning overhead)
@@ -37,9 +40,44 @@ Use streaming input mode (--input-stream-mode) with session persistence via /cle
 
 **Implementation:**
 - Single long-lived agent process
-- Issue /clear command between iterations to reset context
+- Call `agent.clearSession()` or equivalent SDK method between iterations to reset context
+- Iteration completion detected via `onResult` event in streaming mode
 - Stateless design: agents write outputs to files (md, code)
 - Use TypeScript SDK (@anthropic-ai/claude-code)
+- Prompt file read once at loop start and cached for entire run
+
+## SDK Integration Details (v2.0)
+
+### Event-Driven Architecture
+
+The v2.0 implementation uses the `@anthropic-ai/claude-code` SDK's event-driven architecture:
+
+**Key SDK Events:**
+- `onResult` - Fired when iteration completes (used to detect iteration end and extract cost/token data)
+- `onHumanInput` - Fired when Claude requests human input (triggers `onHumanInput` callback)
+- `onAssistant` - Assistant message events during streaming
+- `onToolUse` - Tool usage events
+- `onToolResult` - Tool result events
+
+**Session Management:**
+- Use `agent.clearSession()` or equivalent SDK method to reset context between iterations
+- Single long-lived agent process for entire loop execution
+- Avoids process spawning overhead
+
+**Cost & Token Tracking:**
+- SDK provides built-in pricing data in response objects
+- Extract from `onResult` event payload
+- No custom pricing table needed - trust SDK calculations
+
+**Prompt Handling:**
+- Read prompt file once at loop initialization
+- Cache in memory for entire run
+- No re-reading between iterations (performance optimization)
+
+**Configuration Precedence:**
+- CLI arguments override config file settings
+- Config file settings override defaults
+- Explicit and predictable behavior
 
 ## Architecture
 
@@ -155,15 +193,16 @@ Use streaming input mode (--input-stream-mode) with session persistence via /cle
 ```
 
 **Key Design Decisions:**
-- **Session Persistence**: Single agent process with /clear between iterations
-- **Interactive Mode**: Unified mode with `onHumanInput` callback (no separate mode)
-- **UI Framework**: Ink (React-based terminal UI) for rich visualization
+- **Session Persistence**: Single agent process with `agent.clearSession()` between iterations
+- **Interactive Mode**: Unified mode with `onHumanInput` callback triggered by SDK events (no separate mode)
+- **UI Framework**: Ink (React-based terminal UI) - completely replaces repomirror visualize
 - **Error Handling**: Auto-retry with exponential backoff on rate limits/network errors
-- **Cost Tracking**: Trust SDK's built-in pricing
-- **Configuration**: JSON format (`.claude-loop.json`)
-- **Prompts**: Static (read once per iteration)
+- **Cost Tracking**: Use SDK's built-in pricing data from response objects
+- **Configuration**: JSON format (`.claude-loop.json`) with precedence: CLI > Config > Defaults
+- **Prompts**: Cached (read once at loop start)
 - **Workflow**: Single prompt only, stateless between iterations
-- **Testing**: Full spec implementation + basic tests for feedback
+- **Testing**: Mock SDK responses for unit tests + minimal prompts for integration tests
+- **Iteration Detection**: Use `onResult` event in streaming mode
 
 **Advantages:**
 - Single long-lived process (minimal overhead)
@@ -200,10 +239,11 @@ Total cost: $0.14394070 / $100.00
 
 **Features:**
 - Per-model token counts (input, output, cache)
-- Per-model cost breakdown
+- Per-model cost breakdown using SDK's built-in pricing data
 - Iteration cost tracking
 - Cumulative cost tracking
 - Configurable cost threshold
+- Real-time cost updates during streaming via SDK response objects
 
 ### Token Monitoring
 
@@ -214,22 +254,23 @@ Total cost: $0.14394070 / $100.00
 
 ### Visualization
 
-**Current (via repomirror visualize):**
+**Current (v1.0 via repomirror visualize):**
 - Colored event indicators
 - Tool usage display
 - Debug timestamps (optional)
 - Parse error detection
 
-**Future (Ink UI):**
+**v2.0 (Ink UI - completely replaces repomirror):**
 - React-based terminal UI components
 - Real-time updates with state management
 - Custom spinner animations
 - Progress bars for long operations
-- Live cost/token dashboard
+- Live cost/token dashboard (updated via `onResult` events)
 - Error visualization with stack traces
-- Interactive elements (when onHumanInput provided)
+- Interactive elements (when `onHumanInput` callback provided, triggered by SDK events)
 - Responsive layouts
 - Cleaner, more integrated output
+- No external dependencies (repomirror removed)
 
 ### Limit Controls
 
@@ -265,7 +306,7 @@ Optional:
 claude-loop -f PROMPT_FILE [OPTIONS]
 
 Required:
-  -f, --prompt-file FILE   Path to prompt file
+  -f, --prompt-file FILE   Path to prompt file (cached for entire run)
 
 Optional:
   -i, --iterations NUM     Max iterations (default: 1000)
@@ -274,8 +315,11 @@ Optional:
   -c, --max-cost USD       Max cost in USD (default: 100.0)
   -p, --pause SECONDS      Pause between iterations (default: 0)
   --config FILE            Path to config file (default: .claude-loop.json)
+  --profile PROFILE        Use config profile (e.g., 'analysis', 'quick')
   --no-ui                  Disable Ink UI (plain text output)
   -h, --help               Show this help message
+
+Note: CLI arguments take precedence over config file, which takes precedence over defaults
 ```
 
 **Configuration File (v2.0 - JSON format):**
@@ -325,10 +369,11 @@ const loop = new ClaudeLoop({
 
 await loop.run('prompt.md');
 
-// With callbacks for interactive mode
+// With callbacks for interactive mode (triggered by SDK events)
 const loopInteractive = new ClaudeLoop({
   maxCost: 50.0,
   onHumanInput: async (prompt) => {
+    // Called automatically when SDK fires human input event
     // Custom logic to get human input
     return await getUserInput(prompt);
   },
@@ -469,8 +514,9 @@ class ClaudeLoop {
   getStats(): LoopStats;
 
   // Session management (internal)
-  private async clearSession(): Promise<void>;
+  private async clearSession(): Promise<void>; // Calls agent.clearSession() or equivalent
   private async handleRetry(error: LoopError): Promise<boolean>;
+  private async detectIterationComplete(): Promise<void>; // Waits for onResult event
 }
 ```
 
@@ -520,10 +566,11 @@ const loop = new ClaudeLoop({
 
 await loop.run('implementation_prompt.md');
 
-// Interactive mode with human input
+// Interactive mode with human input (triggered by SDK events)
 const interactiveLoop = new ClaudeLoop({
   maxCost: 50,
   onHumanInput: async (prompt) => {
+    // Called automatically when SDK fires human input event
     // Custom human input handler
     const readline = require('readline').createInterface({
       input: process.stdin,
@@ -576,12 +623,12 @@ await interactiveLoop.run('spec_prompt.md');
 - [ ] Real-time updates with React state
 
 #### 2.3 Cost & Token Tracking
-- [ ] Extract cost data from SDK responses
-- [ ] Trust SDK built-in pricing (no custom pricing table)
-- [ ] Per-model accumulation
-- [ ] Real-time cost updates
-- [ ] Limit threshold checking
-- [ ] Cost callbacks (onCostUpdate)
+- [ ] Extract cost data from SDK response objects (built-in pricing)
+- [ ] No custom pricing table needed - trust SDK pricing data
+- [ ] Per-model accumulation from SDK responses
+- [ ] Real-time cost updates via `onResult` event
+- [ ] Limit threshold checking after each iteration
+- [ ] Cost callbacks (onCostUpdate) triggered by SDK events
 
 #### 2.4 Retry & Error Handling
 - [ ] Detect error types (rate_limit, network, api_error)
@@ -603,19 +650,22 @@ await interactiveLoop.run('spec_prompt.md');
 #### 2.6 Programmatic API
 - [ ] TypeScript types and interfaces
 - [ ] ClaudeLoopOptions interface
-- [ ] Callback system (onIteration, onCostUpdate, onLimit, onHumanInput, onError)
+- [ ] Callback system (onIteration, onCostUpdate, onLimit, onHumanInput triggered by SDK events, onError)
 - [ ] Control methods (pause, resume, stop)
-- [ ] Session management (/clear between iterations)
+- [ ] Session management (agent.clearSession() between iterations)
 - [ ] Stateless iteration design
+- [ ] Prompt caching (read once at start)
+- [ ] Iteration detection via onResult event
 
 #### 2.7 Testing & Documentation
-- [ ] Unit tests (cost tracking, limits, retry logic)
-- [ ] Integration tests (end-to-end loop execution)
+- [ ] Unit tests with mocked SDK responses (cost tracking, limits, retry logic)
+- [ ] Integration tests with minimal prompts (end-to-end loop execution)
 - [ ] Basic feedback loop tests
 - [ ] API documentation (types, interfaces)
-- [ ] Usage examples (simple, advanced, interactive)
+- [ ] Usage examples (simple, advanced, interactive with SDK events)
 - [ ] README update for v2.0
 - [ ] Migration guide from v1.0
+- [ ] Document SDK event-driven architecture
 
 ### Phase 3: Enhanced Features (Future - v3.0)
 
@@ -635,7 +685,7 @@ await interactiveLoop.run('spec_prompt.md');
 - `jq` - JSON parsing
 - `bc` - Floating-point arithmetic
 - `claude` - Claude CLI
-- `npx repomirror` - Visualization
+- `npx repomirror` - Visualization (removed in v2.0)
 - `git` - Version control
 
 ### Future (v2.0 - Node.js)
@@ -659,14 +709,20 @@ await interactiveLoop.run('spec_prompt.md');
 ```
 
 **Key Dependencies:**
-- `@anthropic-ai/claude-code` - Official Claude SDK
-- `ink` - React-based terminal UI framework
+- `@anthropic-ai/claude-code` - Official Claude SDK with built-in pricing, streaming events, and session management
+- `ink` - React-based terminal UI framework (replaces repomirror)
 - `react` - Required by Ink for component rendering
-- `commander` - CLI argument parsing
+- `commander` - CLI argument parsing (implements precedence: CLI > Config > Defaults)
 - `fs-extra` - Enhanced file system operations
 - `typescript` - Type safety and compilation
-- `vitest` - Fast unit testing
+- `vitest` - Fast unit testing with mocked SDK responses
 - `tsx` - TypeScript execution for development
+
+**Distribution Strategy:**
+- Develop locally until v2.0 is feature-complete and stable
+- Publish to npm registry only when ready for production use
+- Primary focus: CLI tool (`claude-loop` command)
+- Secondary: Programmatic API for Node.js applications
 
 ## Performance Considerations
 
@@ -677,12 +733,14 @@ await interactiveLoop.run('spec_prompt.md');
 
 ### Future Implementation (v2.0)
 - No subprocess overhead (single long-lived process)
-- Session persistence with /clear (faster than respawning)
+- Session persistence with `agent.clearSession()` (faster than respawning)
 - Native object access from SDK (no JSON parsing)
+- Iteration detection via `onResult` event (no polling)
 - Ink UI rendering overhead: ~5-10ms per update
 - Memory: ~100-200MB (Node.js + SDK + Ink + React)
 - Estimated 20-30% performance improvement over v1.0
 - Retry logic may add latency during failures (acceptable trade-off)
+- Prompt caching reduces file I/O overhead
 
 ## Security Considerations
 
@@ -832,22 +890,41 @@ claude-loop -f prompt.md --config ./my-config.json
 
 ## Testing Strategy
 
-### Unit Tests
-- Cost calculation logic
-- Token accumulation
-- Limit checking
-- Configuration parsing
+### Unit Tests (with Mocked SDK)
+- Mock SDK response objects for predictable testing
+- Cost calculation logic from mocked `onResult` events
+- Token accumulation across iterations
+- Limit checking (cost, tokens, time, iterations)
+- Configuration parsing and precedence (CLI > Config > Defaults)
+- Retry logic with mocked errors
+- Session clearing behavior
 
-### Integration Tests
-- End-to-end loop execution
-- SDK integration
-- Visualization output
-- Error handling
+**Mock SDK Structure:**
+```typescript
+const mockSDK = {
+  onResult: vi.fn((callback) => {
+    callback({
+      usage: { /* token counts */ },
+      cost: { /* pricing data */ }
+    });
+  }),
+  clearSession: vi.fn(),
+  onHumanInput: vi.fn()
+};
+```
+
+### Integration Tests (with Minimal Prompts)
+- End-to-end loop execution with very short prompts
+- Real SDK integration (limited API calls)
+- Ink UI rendering (snapshot tests)
+- Error handling with real SDK errors
+- Configuration file loading
 
 ### Performance Tests
-- Memory usage over time
-- Iteration speed
-- Large prompt handling
+- Memory usage over time (long-running loops)
+- Iteration speed benchmarks
+- Large prompt handling (if needed)
+- Ink UI rendering performance
 
 ## Documentation
 
