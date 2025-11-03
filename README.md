@@ -88,7 +88,7 @@ Located in `prompts/`:
 5. Checks limits (cost, tokens, time, iterations)
 6. Continues or exits based on limits
 
-See [`specs/technical-specification.md`](specs/technical-specification.md) for detailed technical specification.
+See [`specs/npm-migration.md`](specs/npm-migration.md) for NPM package migration specification.
 
 ## Writing Effective Prompts
 
@@ -136,7 +136,7 @@ Check `claude_loop.log` for detailed error messages.
 ## Resources
 
 - [Claude Code Documentation](https://docs.claude.com/en/docs/claude-code)
-- [Technical Specification](specs/technical-specification.md)
+- [NPM Migration Spec](specs/npm-migration.md)
 - [Claude SDK](https://www.npmjs.com/package/@anthropic-ai/claude-code)
 
 ## License
