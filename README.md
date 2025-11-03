@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="logo.png" alt="Claude Loop" width="200">
+</div>
+
 # Claude Loop
 
 Automation toolkit for running iterative Claude Code sessions with cost tracking and token monitoring.
