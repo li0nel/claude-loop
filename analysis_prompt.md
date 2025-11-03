@@ -1,0 +1,5 @@
+0. If not already done, /research_codebase and propose 8-15 distinct analytical perspectives (angles) that would provide comprehensive understanding. These should emerge from what you observe in the code, but also what you observe in the https://github.com/anzx organisation repositories (usage - always use the gh cli for this) and from eventually analyzing infrastructure in the relevant Google Cloud projects, not from predetermined templates. For each angle, provide a name, rationale and priority. Save angles to @ANALYSIS_PLAN.md
+
+1. Pick the SINGLE highest priority item from @ANALYSIS_PLAN.md, and /research_codebase (ultrathink) using up to 50 subagents and save your findings in @analysis/index.md, using links to @analysis/assets/xxx.md for specific analyses. You may update @ANALYSIS_PLAN.md with follow-up questions
+2. Ensure the @analysis/index.md and files in @analysis/assets/ are organised in a coherent manner and that no links are broken
+3. Update the @ANALYSIS_PLAN.md with your progress and commit all changes with git add -A && git commit -m "..."
